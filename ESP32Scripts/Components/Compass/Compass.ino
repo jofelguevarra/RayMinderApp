@@ -1,5 +1,13 @@
 // Part of Task 3 RayMinder
 
+/*
+Cables:
+  VCC_5V -> 5V
+  GND -> GND
+  SCL -> SCL_PIN
+  SDA -> SDA_PIN
+*/
+
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_HMC5883_U.h>
