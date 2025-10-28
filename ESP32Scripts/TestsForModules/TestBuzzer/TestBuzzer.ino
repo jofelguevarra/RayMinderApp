@@ -1,5 +1,12 @@
 // Little program to test buzzer
 
+/*
+Cables:
+  Blue -> GND
+  Red -> PIN_BUZZER0
+*/
+
+
 #define PIN_BUZZER0 5 // PIN 9 / GP5
 
 void setup() {
