@@ -7,6 +7,9 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_HMC5883_U.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
 
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 
@@ -36,10 +39,14 @@ int uvHistory[UV_SAMPLE_SIZE];
 time_t timeNextApplication;
 int timeToNextReapplication;
 time_t now;
+time_t timeLastApplication;
 
 // Variables for compass
 float lastDirection = 0;
 float allowedAngleDifference = 2;
+
+BLEServer* server = nullptr;
+BLECharacteristic* characteristic = nullptr;
 
 // Declare later used functions
 void sendFacingDirection();
@@ -49,6 +56,17 @@ void readAppMessages();
 void turnOnBuzzersFromMessage();
 void reapplySunscreenFromMessage();
 void decreaseReaplication(int uvValue);
+
+class RayMinderCharacteristicCallbacks: public BLECharacteristicCallbacks {
+  // Receive message from phone
+  void onWrite(BLECharacteristic* characteristic) override {
+    String message = characteristic->getValue();
+    if (message.length() > 0) {
+      Serial.print("Received message: ");
+      Serial.println(message.c_str());
+    }
+  }
+};
 
 void setup() {
   // Setup compass connection
@@ -67,10 +85,30 @@ void setup() {
 
 
   timeNextApplication = time(NULL);
+  timeLastApplication = time(NULL);
 
   for (int i = 0; i < UV_SAMPLE_SIZE; i++) {
     uvHistory[i] = uvCurrentValue;
   }
+
+
+  // Initialaze BLE
+  BLEDevice::init("ESP32-C3");
+  server = BLEDevice::createServer();
+  BLEService *service = server->createService("12345678-1234-1234-1234-123456789012");
+  characteristic = service->createCharacteristic(
+    "12341234-1234-1234-1234-123412341234",
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY
+  );
+
+  characteristic->setCallbacks(new RayMinderCharacteristicCallbacks());
+  characteristic->setValue("");
+  service->start();
+  server->getAdvertising()->start();
+
+  Serial.println("BLE started, now connecting to the phone.");
+
+  sendTimesToPhone();
 
   // Configure pin modes
   pinMode(PIN_BUZZER0, OUTPUT);
@@ -138,8 +176,19 @@ void updateUVMedium() {
 
   uvMediumValue = (int)(uvSum / UV_SAMPLE_SIZE);
 
-  if (uvMediumValue != previousUVMedium) 
+  if (uvMediumValue != previousUVMedium) {
     recalculateTimeAfterUVChange((float)previousUVMedium);
+
+    // Send message to phone with 3 digits
+    // 0 -> Sending uv value
+    //  XX -> UV value in 2 digits
+    String message = "0";
+    if (uvMediumValue < 10) message += '0';
+    message += uvMediumValue;
+    characteristic->setValue(message.c_str());
+    characteristic->notify();
+  }
+    
 }
 
 void recalculateTimeAfterUVChange(float previousUVMedium) {
@@ -154,6 +203,23 @@ void recalculateTimeAfterUVChange(float previousUVMedium) {
   timeToNextReapplication = (int)((float)timeToNextReapplication * ratio);
   Serial.printf("UV change detected. Recalculating time.");
   timeNextApplication = now + (time_t)timeToNextReapplication;
+
+  sendTimesToPhone();
+}
+
+// Send times to phone
+void sendTimesToPhone() {
+  // Send last application time
+  String message = "1";
+  message += (int)timeLastApplication;
+  characteristic->setValue(message.c_str());
+  characteristic->notify();
+
+  // Send next application time
+  message = "2";
+  message += (int)timeToNextReapplication;
+  characteristic->setValue(message.c_str());
+  characteristic->notify();
 }
 
 
@@ -200,12 +266,20 @@ void sendFacingDirection() {
   // Compass is parallel to ground at ~z=45 (Only use these values, as the degrees differ to much when it is tilted)
   if (event.magnetic.z > 45 - allowedAngleDifference && event.magnetic.z < 45 + allowedAngleDifference) {
     lastDirection = headingDegrees;
-    Serial.print("Direction: ");
+    Serial.print("Sending direction to phone: ");
     Serial.print(headingDegrees);
     Serial.println("°");
 
-    // TODO: Send a message to the phone here with the direction the cap is currently facing
-    // Serial.write();
+    // Send message with 4 digits to phone
+    // 1 -> For sending facing direction
+    //  XXX -> degree cap is facing
+    String message = "3";
+    if (lastDirection < 100) message += '0';
+    if (lastDirection < 10) message += '0';
+    message += ((int)lastDirection);
+
+    characteristic->setValue(message.c_str());
+    characteristic->notify();
   }
 }
 
@@ -285,9 +359,12 @@ void reapplySunscreenFromMessage() {
   float factorForBadApplication = 0.6;
 
   Serial.printf("Reapplied sunscreen with SPF %d, for skintype %d\n", (int)spfFactor, skintype);
-  int newTimeToNext = (int)(timeToNextReapplicationForUVAndSkintype() * spfFactor * factorForBadApplication);
-  Serial.printf("Added %dsec.\n", newTimeToNext);
-  timeNextApplication = now + newTimeToNext;
+  timeToNextReapplication = (time_t)((int)(timeToNextReapplicationForUVAndSkintype() * spfFactor * factorForBadApplication));
+  Serial.printf("Added %dsec.\n", timeToNextReapplication);
+  timeNextApplication = now + timeToNextReapplication;
+  timeLastApplication = now;
+
+  sendTimesToPhone();
 }
 
 // After message, that buzzers should go off was received: Turn on these buzzers
