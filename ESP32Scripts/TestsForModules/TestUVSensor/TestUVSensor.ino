@@ -13,6 +13,12 @@ Cables:
 
 int uvValue = 0;
 
+int minData = -1;
+int maxData = 0;
+
+int minUVIndex = -1;
+int maxUVIndex = 0;
+
 void setup() {
   // Setup compass connection
   Serial.begin(115200);
@@ -29,13 +35,6 @@ void loop() {
   delay(200);
 }
 
-int minData = -1;
-int maxData = 0;
-
-int minUVIndex = -1;
-int maxUVIndex = 0;
-
-
 int getUVdata() {
   int data = analogRead(PIN_UVSENSOR);
   Serial.print("\t\tUV data: ");
@@ -49,8 +48,6 @@ int getUVdata() {
   Serial.println(uvIndex);
 
   printMinMax(data, uvIndex);
-
-  // TODO: Possibly filter received data
 
   return data;
 }

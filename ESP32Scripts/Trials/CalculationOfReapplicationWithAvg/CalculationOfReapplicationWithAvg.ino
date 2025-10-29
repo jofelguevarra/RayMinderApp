@@ -119,7 +119,6 @@ void recalculateTimeAfterUVChange(float previousUVMedium) {
   timeToNextReapplication = (int)((float)timeToNextReapplication * ratio);
   Serial.printf("New next time: %d\n", timeToNextReapplication);
   timeNextApplication = now + (time_t)timeToNextReapplication;
-
 }
 
 // Time (in mins) to burn without sunscreen for uv index 10:

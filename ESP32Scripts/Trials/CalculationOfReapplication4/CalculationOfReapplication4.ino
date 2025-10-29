@@ -154,7 +154,7 @@ void setUVvalueFromMessage() {
   float oldAllowed = timeAllowedTotal;
 
   // Recalculate with new uv
-  updateAllowedTime(); // recalculates with new UV
+  updateAllowedTime();
 
   // Recalculate with fraction
   timeNextApplication = now + (1 - fractionElapsed) * timeAllowedTotal;
