@@ -1,7 +1,9 @@
 /*
-  RayMinder
+  DES222 - Task 3
+  By Annika Kaul and Jofel Guevarra
 
-  This is going to be the script for the RayMinders. Right now, it's still under construction.
+  This is the official Script of the RayMinder: UV Smart Caps for Friends, which was created as Task 3 submission for DES222. The code is run on an ESP32-C3 Zero with 4 Buzzers,
+  1 HMC5883L Compass, 1 Adafruit Analog UV Sensor, and a battery pack attached to it. The pins for each component can be found and changed in the code.
 */
 
 #include <Wire.h>
@@ -14,25 +16,25 @@
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 
 // Define pins for I2C communication with compass
-#define SDA_PIN 4
-#define SCL_PIN 5
+#define SDA_PIN 6
+#define SCL_PIN 7
 
 // Define pins of the 4 buzzers
-#define PIN_BUZZER0 6
-#define PIN_BUZZER1 7
-#define PIN_BUZZER2 8
-#define PIN_BUZZER3 9
+#define PIN_BUZZER0 10
+#define PIN_BUZZER1 3
+#define PIN_BUZZER2 4
+#define PIN_BUZZER3 5
 
 // Define pin of the uv sensor
-#define PIN_UVSENSOR 10
+#define PIN_UVSENSOR 2
 
 #define UV_SAMPLE_SIZE 60
 
 int uvMediumValue = 0;
-int uvCurrentValue;
+int uvCurrentValue = 5; // Use 5 as an average starting value
 int uvNextIndex = 1;
-int skintype;
-int spf;
+int skintype = 1;
+int spf = 1;
 
 int uvHistory[UV_SAMPLE_SIZE];
 
@@ -48,22 +50,35 @@ float allowedAngleDifference = 2;
 BLEServer* server = nullptr;
 BLECharacteristic* characteristic = nullptr;
 
+String message = "";
+
 // Declare later used functions
 void sendFacingDirection();
 int getUVdata();
 void changeBuzzer(int buzzerNr, int status);
-void readAppMessages();
+void readAppMessagesForTest();
 void turnOnBuzzersFromMessage();
 void reapplySunscreenFromMessage();
 void decreaseReaplication(int uvValue);
+void setValuesToStart();
 
-class RayMinderCharacteristicCallbacks: public BLECharacteristicCallbacks {
+class RayMinderCharacteristicCallbacks : public BLECharacteristicCallbacks {
   // Receive message from phone
   void onWrite(BLECharacteristic* characteristic) override {
-    String message = characteristic->getValue();
+    message = characteristic->getValue();
     if (message.length() > 0) {
       Serial.print("Received message: ");
       Serial.println(message.c_str());
+
+      // Turn on buzzer(s) from message
+      if (message[0] == '0') {
+        turnOnBuzzersFromMessage();
+
+      } else if (message[0] == '1') {
+        reapplySunscreenFromMessage();
+      } else if (message[0] == '2') {
+        setValuesToStart();
+      }
     }
   }
 };
@@ -95,11 +110,10 @@ void setup() {
   // Initialaze BLE
   BLEDevice::init("ESP32-C3");
   server = BLEDevice::createServer();
-  BLEService *service = server->createService("12345678-1234-1234-1234-123456789012");
+  BLEService* service = server->createService("12345678-1234-1234-1234-123456789012");
   characteristic = service->createCharacteristic(
     "12341234-1234-1234-1234-123412341234",
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY
-  );
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
 
   characteristic->setCallbacks(new RayMinderCharacteristicCallbacks());
   characteristic->setValue("");
@@ -133,28 +147,35 @@ void loop() {
   updateUVMedium();
 
   // Receive messages from app that triggers buzzer in direction of friend OR that sunscreen was reapplied
-  if (Serial.available()) readAppMessages();
+  if (Serial.available()) readAppMessagesForTest(); // Just for testing purposes
 
   now = time(NULL);
-  timeToNextReapplication = (int)difftime(timeNextApplication, now); // in seconds
+  timeToNextReapplication = (int)difftime(timeNextApplication, now);  // in seconds
 
   if (uvMediumValue > 0 && timeToNextReapplication < 0) {
     Serial.println("Time to reapply!");
 
-    int buzzerStatusOn[4] = {1,1,1,1};
+    int buzzerStatusOn[4] = { 1, 1, 1, 1 };
+    int buzzerStatusOff[4] = { 0, 0, 0, 0 };
     changeMultipleBuzzers(buzzerStatusOn);
-    delay(200);
-    int buzzerStatusOff[4] = {1,1,1,1};
-    int* buzzerStatus = buzzerStatusOff;
-    changeMultipleBuzzers(buzzerStatus);
+    delay(400);
+    changeMultipleBuzzers(buzzerStatusOff);
+    delay(400);
+    changeMultipleBuzzers(buzzerStatusOn);
+    delay(400);
+    changeMultipleBuzzers(buzzerStatusOff);
+    delay(400);
+    changeMultipleBuzzers(buzzerStatusOn);
+    delay(400);
+    changeMultipleBuzzers(buzzerStatusOff);
   }
 
 
   int timeHours = timeToNextReapplication / 3600;
   int timeMins = (timeToNextReapplication % 3600) / 60;
   int timeSeconds = timeToNextReapplication % 60;
-  
-  Serial.printf("Next reapplication in %d:%02d:%02d, current UV: %d\n", timeHours,timeMins, timeSeconds, uvMediumValue);
+
+  Serial.printf("Next reapplication in %d:%02d:%02d, current UV: %d\n", timeHours, timeMins, timeSeconds, uvMediumValue);
   delay(2000);
 }
 
@@ -188,7 +209,6 @@ void updateUVMedium() {
     characteristic->setValue(message.c_str());
     characteristic->notify();
   }
-    
 }
 
 void recalculateTimeAfterUVChange(float previousUVMedium) {
@@ -225,11 +245,11 @@ void sendTimesToPhone() {
 
 // Time (in mins) to burn without sunscreen for uv index 10:
 // 1 -> 10; 2 -> 10-20 (~=15); 3 -> 20; 4 -> 30; 5 -> 60; 6 -> 90
-float timesToBurnWithoutSunscreenForUV10[6] = {10, 15, 20, 30, 60, 90};
+float timesToBurnWithoutSunscreenForUV10[6] = { 10, 15, 20, 30, 60, 90 };
 
 // Calculate time for different uvIndexes and skintypes (Time is proportional to uv index)
 float timeToNextReapplicationForUVAndSkintype() {
-  float uvValue = uvMediumValue > 0 ? (float)uvMediumValue : 0.1; // Use small value as "infinite" seconds
+  float uvValue = uvMediumValue > 0 ? (float)uvMediumValue : 0.1;  // Use small value as "infinite" seconds
 
   return timesToBurnWithoutSunscreenForUV10[skintype - 1] * 60 * (10 / uvValue);
 }
@@ -263,8 +283,9 @@ void sendFacingDirection() {
   headingDegrees -= 180;
   if (headingDegrees < 0) headingDegrees += 360;
 
+  float bestAngle = 45;
   // Compass is parallel to ground at ~z=45 (Only use these values, as the degrees differ to much when it is tilted)
-  if (event.magnetic.z > 45 - allowedAngleDifference && event.magnetic.z < 45 + allowedAngleDifference) {
+  if (event.magnetic.z > bestAngle - allowedAngleDifference && event.magnetic.z < bestAngle + allowedAngleDifference) {
     lastDirection = headingDegrees;
     Serial.print("Sending direction to phone: ");
     Serial.print(headingDegrees);
@@ -320,11 +341,10 @@ void changeBuzzer(int buzzerNr, int status) {
     2 digit SPF (e.g. 10 -> SPF 10; 25 -> SPF 25)
       1 Digit skin type of 1-6
 */
-String message;
 char c;
 
-// Read & decode messages send by phone
-void readAppMessages() {
+// For Testing purposes: Read & decode messages send by Serial input
+void readAppMessagesForTest() {
   message = "";
 
   while (Serial.available()) {
@@ -346,6 +366,8 @@ void readAppMessages() {
 
   } else if (message[0] == '1') {
     reapplySunscreenFromMessage();
+  } else if (message[0] == '3') {
+    // Set small timer to show
   }
 }
 
@@ -355,7 +377,7 @@ void reapplySunscreenFromMessage() {
   spf += ((int)message[2]) - 48;
   skintype = ((int)message[3]) - 48;
 
-  float spfFactor = spf > 0 ? spf : 0.1;
+  float spfFactor = spf > 10 ? spf * 0.1 : 1;
   float factorForBadApplication = 0.6;
 
   Serial.printf("Reapplied sunscreen with SPF %d, for skintype %d\n", (int)spfFactor, skintype);
@@ -367,7 +389,7 @@ void reapplySunscreenFromMessage() {
   sendTimesToPhone();
 }
 
-// After message, that buzzers should go off was received: Turn on these buzzers
+// After message, that buzzers should go off was received: Turn on these buzzers 3x
 void turnOnBuzzersFromMessage() {
   int buzzers = ((int)message[1]) - 48;
 
@@ -389,4 +411,38 @@ void turnOnBuzzersFromMessage() {
   if (buzzers > 3) {
     changeBuzzer(buzzers + 1 % 4, 0);
   }
+
+  delay(400);
+
+  changeBuzzer(buzzers % 4, 1);
+  if (buzzers > 3) {
+    changeBuzzer(buzzers + 1 % 4, 1);
+  }
+
+  delay(400);
+
+  changeBuzzer(buzzers % 4, 0);
+  if (buzzers > 3) {
+    changeBuzzer(buzzers + 1 % 4, 0);
+  }
+
+  delay(400);
+
+  changeBuzzer(buzzers % 4, 1);
+  if (buzzers > 3) {
+    changeBuzzer(buzzers + 1 % 4, 1);
+  }
+
+  delay(400);
+
+  changeBuzzer(buzzers % 4, 0);
+  if (buzzers > 3) {
+    changeBuzzer(buzzers + 1 % 4, 0);
+  }
+}
+
+void setValuesToStart() {
+  // Set start time
+  message = "1011";
+  reapplySunscreenFromMessage();
 }
