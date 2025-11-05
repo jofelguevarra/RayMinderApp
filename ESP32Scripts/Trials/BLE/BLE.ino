@@ -8,14 +8,13 @@ BLECharacteristic* characteristic = nullptr;
 class RayMinderCharacteristicCallbacks: public BLECharacteristicCallbacks {
   // Receive message from phone
   void onWrite(BLECharacteristic* characteristic) override {
-    String message = characteristic->getValue();
+    String message = (String)(characteristic->getValue().c_str());
     if (message.length() > 0) {
       Serial.print("Received message: ");
       Serial.println(message.c_str());
     }
   }
 };
-
 
 void setup() {
   Serial.begin(115200);
@@ -27,6 +26,9 @@ void setup() {
 
   // Create BLE server
   server = BLEDevice::createServer();
+
+  BLESecurity *pSecurity = new BLESecurity();
+  pSecurity->setAuthenticationMode(ESP_LE_AUTH_NO_BOND);
 
   // Creaet service
   BLEService *service = server->createService("12345678-1234-1234-1234-123456789012");

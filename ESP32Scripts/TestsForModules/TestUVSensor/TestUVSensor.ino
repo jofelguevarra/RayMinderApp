@@ -9,7 +9,7 @@ Cables:
 
 
 // Define pin of the uv sensor
-#define PIN_UVSENSOR 1
+#define PIN_UVSENSOR 2
 
 int uvValue = 0;
 
@@ -33,6 +33,7 @@ void setup() {
 void loop() {
   uvValue = getUVdata();
   delay(200);
+  Serial.println("This was uploaded.");
 }
 
 int getUVdata() {

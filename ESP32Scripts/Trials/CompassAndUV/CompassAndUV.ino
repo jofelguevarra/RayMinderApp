@@ -8,14 +8,16 @@ Cables:
   SDA -> SDA_PIN
 */
 
+#define PIN_UVSENSOR 1
+
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_HMC5883_U.h>
 
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 
-#define SDA_PIN 6
-#define SCL_PIN 7
+#define SDA_PIN 4
+#define SCL_PIN 5
 
 float lastDirection = 0;
 float allowedAngleDifference = 2;
@@ -26,6 +28,9 @@ void setup(void)
   Wire.begin(SDA_PIN, SCL_PIN);
   Serial.println("HMC5883 Magnetometer will be started...");
   Serial.println("");
+
+
+  pinMode(PIN_UVSENSOR, INPUT);
   
   /* Initialise the sensor */
   if(!mag.begin())
@@ -38,6 +43,10 @@ void setup(void)
 
 void loop(void) 
 {
+  int data = analogRead(PIN_UVSENSOR);
+  Serial.print("\t\tUV data: ");
+  Serial.println(data);
+
   /* Get a new sensor event */ 
   sensors_event_t event; 
   mag.getEvent(&event);
@@ -65,9 +74,9 @@ void loop(void)
   headingDegrees -= 180;
   if (headingDegrees < 0) headingDegrees += 360;
   
-  float allowedAngle = 42;
+  float bestAngle = 42;
   // Compass is parallel to ground at ~z=45 (Only use these values, as the degrees differ to much when it is tilted)
-  if (event.magnetic.z > 45 - allowedAngleDifference && event.magnetic.z < 45 + allowedAngleDifference) {
+  if (event.magnetic.z > bestAngle - allowedAngleDifference && event.magnetic.z < bestAngle + allowedAngleDifference) {
     lastDirection = headingDegrees;
     Serial.print("Direction: ");
     Serial.print(headingDegrees);
@@ -75,7 +84,7 @@ void loop(void)
 
     // TODO: Send a message to the phone here with the direction the cap is currently facing
   } else {
-    Serial.print("Z degree: ");
+    Serial.print("Not right direction?");
     Serial.println(event.magnetic.z);
   }
   
